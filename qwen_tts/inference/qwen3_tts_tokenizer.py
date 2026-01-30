@@ -33,6 +33,13 @@ from ..core import (
     Qwen3TTSTokenizerV2Model,
 )
 
+try:
+    from transformers import EncodecFeatureExtractor  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover
+    from transformers.models.encodec.feature_extraction_encodec import (  # type: ignore
+        EncodecFeatureExtractor,
+    )
+
 AudioInput = Union[
     str,  # wav path, or base64 string
     np.ndarray,  # 1-D float array
@@ -84,9 +91,13 @@ class Qwen3TTSTokenizer:
         AutoConfig.register("qwen3_tts_tokenizer_12hz", Qwen3TTSTokenizerV2Config)
         AutoModel.register(Qwen3TTSTokenizerV2Config, Qwen3TTSTokenizerV2Model)
 
-        inst.feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name_or_path)
         inst.model = AutoModel.from_pretrained(pretrained_model_name_or_path, **kwargs)
         inst.config = inst.model.config
+        try:
+            inst.feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name_or_path)
+        except OSError:
+            sr = getattr(inst.config, "input_sample_rate", None) or getattr(inst.config, "sampling_rate", None) or 24000
+            inst.feature_extractor = EncodecFeatureExtractor(sampling_rate=int(sr))
 
         inst.device = getattr(inst.model, "device", None)
         if inst.device is None:

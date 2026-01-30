@@ -1891,27 +1891,38 @@ class Qwen3TTSForConditionalGeneration(Qwen3TTSPreTrainedModel, GenerationMixin)
         if not local_files_only and not os.path.isdir(pretrained_model_name_or_path):
             download_cache_dir = kwargs.get("cache_dir", cache_dir)
             download_revision = kwargs.get("revision", revision)
-            download_weights_from_hf_specific(
+            hf_folder = download_weights_from_hf_specific(
                 pretrained_model_name_or_path,
                 cache_dir=download_cache_dir,
                 allow_patterns=["speech_tokenizer/*"],
                 revision=download_revision,
             )
-        speech_tokenizer_path = cached_file(
-            pretrained_model_name_or_path,
-            "speech_tokenizer/config.json",
-            subfolder=kwargs.pop("subfolder", None),
-            cache_dir=kwargs.pop("cache_dir", None),
-            force_download=kwargs.pop("force_download", False),
-            proxies=kwargs.pop("proxies", None),
-            resume_download=kwargs.pop("resume_download", None),
-            local_files_only=kwargs.pop("local_files_only", False),
-            token=kwargs.pop("use_auth_token", None),
-            revision=kwargs.pop("revision", None),
-        )
-        if speech_tokenizer_path is None:
-            raise ValueError(f"""{pretrained_model_name_or_path}/{speech_tokenizer_path} not exists""")
-        speech_tokenizer_dir = os.path.dirname(speech_tokenizer_path)
+            # IMPORTANT:
+            # Transformers' `cached_file(...)` may resolve to a different cache tree (e.g. TRANSFORMERS_CACHE),
+            # which would only contain the single requested file (config.json) but not the tokenizer weights.
+            # We prefer the snapshot folder returned by `snapshot_download(...)` (via huggingface_hub),
+            # which includes the whole `speech_tokenizer/` subtree we just downloaded.
+            speech_tokenizer_dir = os.path.join(hf_folder, "speech_tokenizer")
+        else:
+            speech_tokenizer_dir = os.path.join(pretrained_model_name_or_path, "speech_tokenizer")
+
+        if not (os.path.isdir(speech_tokenizer_dir) and os.path.isfile(os.path.join(speech_tokenizer_dir, "config.json"))):
+            speech_tokenizer_path = cached_file(
+                pretrained_model_name_or_path,
+                "speech_tokenizer/config.json",
+                subfolder=kwargs.get("subfolder", None),
+                cache_dir=kwargs.get("cache_dir", None),
+                force_download=kwargs.get("force_download", False),
+                proxies=kwargs.get("proxies", None),
+                resume_download=kwargs.get("resume_download", None),
+                local_files_only=kwargs.get("local_files_only", False),
+                token=kwargs.get("use_auth_token", None),
+                revision=kwargs.get("revision", None),
+            )
+            if speech_tokenizer_path is None:
+                raise ValueError(f"""{pretrained_model_name_or_path}/{speech_tokenizer_path} not exists""")
+            speech_tokenizer_dir = os.path.dirname(speech_tokenizer_path)
+
         speech_tokenizer = Qwen3TTSTokenizer.from_pretrained(
             speech_tokenizer_dir,
             *model_args,

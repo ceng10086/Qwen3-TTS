@@ -1,0 +1,38 @@
+FROM python:3.12-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/data/hf \
+    HUGGINGFACE_HUB_CACHE=/data/hf/hub \
+    TORCH_HOME=/data/torch \
+    XDG_CACHE_HOME=/data/cache \
+    GRADIO_ANALYTICS_ENABLED=false \
+    GRADIO_TEMP_DIR=/data/gradio-tmp
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git \
+      sox \
+      ffmpeg \
+      libsndfile1 \
+      ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY pyproject.toml README.md LICENSE MANIFEST.in ./
+COPY qwen_tts ./qwen_tts
+
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install .
+
+RUN useradd -m -u 1000 app \
+    && mkdir -p /data/hf /data/torch /data/cache /data/gradio-tmp /data/outputs /data/voices \
+    && chown -R app:app /data
+
+USER app
+EXPOSE 8000
+
+CMD ["qwen-tts-web", "--ip", "0.0.0.0", "--port", "8000"]

@@ -418,6 +418,30 @@ qwen-tts-demo Qwen/Qwen3-TTS-12Hz-1.7B-Base \
 
 And open `https://<your-ip>:8000` to experience it. If your browser shows a warning, it’s expected for self-signed certificates. For production, use a real certificate.
 
+### Docker (CPU / NVIDIA GPU)
+
+This repo also supports a unified Web UI with **runtime model switching** (CustomVoice / VoiceDesign / Base) via `qwen-tts-web`, and provides Docker one-click launch scripts.
+
+#### CPU
+
+```bash
+./docker/run-cpu.sh
+```
+
+#### NVIDIA GPU
+
+Prerequisite: install NVIDIA Container Toolkit, then run:
+
+```bash
+./docker/run-gpu.sh
+```
+
+Then open `http://localhost:8000`.
+
+**Data persistence**
+- The container stores HuggingFace cache, generated outputs, and saved voice prompt files in a Docker named volume: `qwen3_tts_data`.
+- No host directory bind-mount is required.
+
 ### DashScope API Usage
 
 To further explore Qwen3-TTS, we encourage you to try our DashScope API for a faster and more efficient experience. For detailed API information and documentation, please refer to the following:

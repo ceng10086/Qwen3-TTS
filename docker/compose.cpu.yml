@@ -1,0 +1,20 @@
+services:
+  qwen3-tts:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.cpu
+    image: qwen3-tts:cpu
+    ports:
+      - "8000:8000"
+    environment:
+      QWEN_TTS_DEVICE: cpu
+      QWEN_TTS_DTYPE: float32
+      QWEN_TTS_FLASH_ATTN: "0"
+      QWEN_TTS_DEFAULT_MODEL: Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+    volumes:
+      - qwen3_tts_data:/data
+    restart: unless-stopped
+
+volumes:
+  qwen3_tts_data:
+    name: qwen3_tts_data
