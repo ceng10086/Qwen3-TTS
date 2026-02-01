@@ -18,6 +18,7 @@ A gradio demo for Qwen3 TTS models.
 """
 
 import argparse
+import inspect
 import os
 import tempfile
 from dataclasses import asdict
@@ -239,8 +240,9 @@ def _audio_to_tuple(audio: Any) -> Optional[Tuple[np.ndarray, int]]:
 
 
 def _wav_to_gradio_audio(wav: np.ndarray, sr: int) -> Tuple[int, np.ndarray]:
-    wav = np.asarray(wav, dtype=np.float32)
-    return sr, wav
+    wav = _normalize_audio(wav, clip=True)
+    wav_i16 = (wav * 32767.0).round().astype(np.int16)
+    return sr, wav_i16
 
 
 def _detect_model_kind(ckpt: str, tts: Qwen3TTSModel) -> str:
@@ -268,13 +270,21 @@ def build_demo(tts: Qwen3TTSModel, ckpt: str, gen_kwargs_default: Dict[str, Any]
     def _gen_common_kwargs() -> Dict[str, Any]:
         return dict(gen_kwargs_default)
 
-    theme = gr.themes.Soft(
-        font=[gr.themes.GoogleFont("Source Sans Pro"), "Arial", "sans-serif"],
-    )
-
+    theme = gr.themes.Soft(font=[gr.themes.GoogleFont("Source Sans Pro"), "Arial", "sans-serif"])
     css = ".gradio-container {max-width: none !important;}"
+    launch_sig = inspect.signature(gr.Blocks.launch)
+    blocks_kwargs: Dict[str, Any] = {}
+    launch_extras: Dict[str, Any] = {}
+    if "theme" in launch_sig.parameters:
+        launch_extras["theme"] = theme
+    else:
+        blocks_kwargs["theme"] = theme
+    if "css" in launch_sig.parameters:
+        launch_extras["css"] = css
+    else:
+        blocks_kwargs["css"] = css
 
-    with gr.Blocks(theme=theme, css=css) as demo:
+    with gr.Blocks(**blocks_kwargs) as demo:
         gr.Markdown(
             f"""
 # Qwen3 TTS Demo
@@ -589,6 +599,7 @@ Upload a previously saved voice file, then synthesize new text.
 """
         )
 
+    setattr(demo, "_qwen_launch_extras", launch_extras)
     return demo
 
 
@@ -603,7 +614,13 @@ def main(argv=None) -> int:
     ckpt = _resolve_checkpoint(args)
 
     dtype = _dtype_from_str(args.dtype)
-    attn_impl = "flash_attention_2" if args.flash_attn else None
+    attn_impl = None
+    if args.flash_attn:
+        if "cuda" not in str(args.device).lower():
+            raise ValueError("FlashAttention-2 requires a CUDA device (e.g. cuda:0).")
+        if dtype not in (torch.float16, torch.bfloat16):
+            raise ValueError("FlashAttention-2 requires dtype float16/bfloat16.")
+        attn_impl = "flash_attention_2"
 
     tts = Qwen3TTSModel.from_pretrained(
         ckpt,
@@ -621,6 +638,7 @@ def main(argv=None) -> int:
         share=args.share,
         ssl_verify=True if args.ssl_verify else False,
     )
+    launch_kwargs.update(getattr(demo, "_qwen_launch_extras", {}) or {})
     if args.ssl_certfile is not None:
         launch_kwargs["ssl_certfile"] = args.ssl_certfile
     if args.ssl_keyfile is not None:

@@ -78,6 +78,41 @@ class Qwen3TTSModel:
                 self.device = next(model.parameters()).device
             except StopIteration:
                 self.device = torch.device("cpu")
+        self._ensure_generation_pad_token_id()
+
+    def _ensure_generation_pad_token_id(self) -> None:
+        gen_cfg = getattr(self.model, "generation_config", None)
+        if gen_cfg is None:
+            return
+        if getattr(gen_cfg, "pad_token_id", None) is not None:
+            return
+
+        eos = getattr(gen_cfg, "eos_token_id", None)
+        if eos is None:
+            eos = getattr(getattr(self.model, "config", None), "eos_token_id", None)
+        if isinstance(eos, (list, tuple)):
+            eos = eos[0] if len(eos) else None
+        if eos is None:
+            return
+
+        try:
+            gen_cfg.pad_token_id = int(eos)
+        except Exception:
+            return
+
+        tok = getattr(self.processor, "tokenizer", None)
+        if tok is None:
+            return
+        if getattr(tok, "pad_token_id", None) is None:
+            try:
+                tok.pad_token_id = int(eos)
+            except Exception:
+                pass
+        if getattr(tok, "pad_token", None) is None and getattr(tok, "eos_token", None) is not None:
+            try:
+                tok.pad_token = tok.eos_token
+            except Exception:
+                pass
 
     @classmethod
     def from_pretrained(

@@ -15,10 +15,10 @@
 # limitations under the License.
 import os
 import math
-import torch
 import operator
 
 import numpy as np
+import torch
 import torch.nn.functional as F
 
 from functools import lru_cache
@@ -32,7 +32,6 @@ except ImportError:
     try:
         from flash_attn.flash_attn_interface import flash_attn_unpadded_func as flash_attn_varlen_func
     except ImportError:
-        print("\n********\nWarning: flash-attn is not installed. Will only run the manual PyTorch version. Please install flash-attn for faster inference.\n********\n ")
         flash_attn_varlen_func = None
 
 
@@ -167,7 +166,7 @@ class MultiHeadAttention(nn.Module):
         self.value = Linear(n_state, n_state)
         self.out = Linear(n_state, n_state)
 
-        self.use_flash_attention = True
+        self.use_flash_attention = flash_attn_varlen_func is not None
 
     def forward(
         self,
@@ -179,14 +178,11 @@ class MultiHeadAttention(nn.Module):
         v = self.value(x)
         
         if self.use_flash_attention:
-            if flash_attn_varlen_func is None:
+            if (not q.is_cuda) or (q.dtype not in [torch.float16, torch.bfloat16]):
                 x = self.qkv_attention_manual(q, k, v, cu_seqlens=cu_seqlens)
+                self.use_flash_attention = False
             else:
-                if q.dtype not in [torch.float16, torch.bfloat16]:
-                    x = self.qkv_attention_manual(q, k, v, cu_seqlens=cu_seqlens)
-                    self.use_flash_attention = False
-                else:
-                    x = self.qkv_flash_attention(q, k, v, cu_seqlens=cu_seqlens)
+                x = self.qkv_flash_attention(q, k, v, cu_seqlens=cu_seqlens)
         else:
             x = self.qkv_attention_manual(q, k, v, cu_seqlens=cu_seqlens)
 

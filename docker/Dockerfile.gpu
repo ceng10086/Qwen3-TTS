@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -14,6 +14,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
+      build-essential \
+      ninja-build \
       sox \
       ffmpeg \
       libsndfile1 \
@@ -26,6 +28,7 @@ COPY pyproject.toml README.md LICENSE MANIFEST.in ./
 COPY qwen_tts ./qwen_tts
 
 RUN python -m pip install --upgrade pip setuptools wheel \
+    && MAX_JOBS=4 python -m pip install -U flash-attn --no-build-isolation \
     && python -m pip install .
 
 RUN useradd -m -u 1000 app \

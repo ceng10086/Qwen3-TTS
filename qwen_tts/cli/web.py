@@ -10,6 +10,7 @@ Unified local Web UI for Qwen3-TTS.
 
 import argparse
 import gc
+import inspect
 import os
 import tempfile
 import time
@@ -93,8 +94,9 @@ def _audio_to_tuple(audio: Any) -> Optional[Tuple[np.ndarray, int]]:
 
 
 def _wav_to_gradio_audio(wav: np.ndarray, sr: int) -> Tuple[int, np.ndarray]:
-    wav = np.asarray(wav, dtype=np.float32)
-    return sr, wav
+    wav = _normalize_audio(wav, clip=True)
+    wav_i16 = (wav * 32767.0).round().astype(np.int16)
+    return sr, wav_i16
 
 
 def _detect_model_kind(tts: Qwen3TTSModel) -> str:
@@ -190,9 +192,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def build_ui(args: argparse.Namespace) -> gr.Blocks:
-    theme = gr.themes.Soft(font=[gr.themes.GoogleFont("Source Sans Pro"), "Arial", "sans-serif"])
-    css = ".gradio-container {max-width: none !important;}"
-
     default_models = [m.strip() for m in (args.models or "").split(",") if m.strip()]
     default_model = args.default_model.strip() if args.default_model else (default_models[0] if default_models else "")
 
@@ -220,7 +219,21 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
         sf.write(path, np.asarray(wav, dtype=np.float32), int(sr))
         return path
 
-    with gr.Blocks(theme=theme, css=css) as demo:
+    theme = gr.themes.Soft(font=[gr.themes.GoogleFont("Source Sans Pro"), "Arial", "sans-serif"])
+    css = ".gradio-container {max-width: none !important;}"
+    launch_sig = inspect.signature(gr.Blocks.launch)
+    blocks_kwargs: Dict[str, Any] = {}
+    launch_extras: Dict[str, Any] = {}
+    if "theme" in launch_sig.parameters:
+        launch_extras["theme"] = theme
+    else:
+        blocks_kwargs["theme"] = theme
+    if "css" in launch_sig.parameters:
+        launch_extras["css"] = css
+    else:
+        blocks_kwargs["css"] = css
+
+    with gr.Blocks(**blocks_kwargs) as demo:
         gr.Markdown("# Qwen3-TTS Web UI\nLoad/switch models, then generate audio in the tabs below.")
 
         model_state = gr.State(value=None)
@@ -363,7 +376,14 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                 device = (device or "").strip() or "cpu"
                 dtype_s = (dtype_s or "").strip() or "float32"
                 dtype = _dtype_from_str(dtype_s)
-                attn_impl = "flash_attention_2" if flash else None
+                attn_impl = None
+                flash = bool(flash)
+                if flash:
+                    if "cuda" not in device.lower():
+                        return lm, "FlashAttention-2 requires a CUDA device (e.g. cuda:0)."
+                    if dtype not in (torch.float16, torch.bfloat16):
+                        return lm, "FlashAttention-2 requires dtype float16/bfloat16."
+                    attn_impl = "flash_attention_2"
 
                 if lm is not None and (lm.ckpt, lm.device, lm.dtype, lm.flash_attn) == (ckpt, device, dtype_s, flash):
                     return lm, f"Already loaded: {ckpt} ({lm.kind})"
@@ -636,6 +656,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
 """
         )
 
+    setattr(demo, "_qwen_launch_extras", launch_extras)
     return demo
 
 
@@ -657,6 +678,7 @@ def main(argv=None) -> int:
         ssl_verify=True if args.ssl_verify else False,
         allowed_paths=allowed_paths,
     )
+    launch_kwargs.update(getattr(demo, "_qwen_launch_extras", {}) or {})
     if args.ssl_certfile is not None:
         launch_kwargs["ssl_certfile"] = args.ssl_certfile
     if args.ssl_keyfile is not None:
